@@ -1,0 +1,277 @@
+{% extends 'base.html' %}
+{% block title %}Detect — YOLO Playground{% endblock %}
+{% block content %}
+
+<!-- Model selector bar -->
+<div class="d-flex align-items-center gap-3 mb-4 flex-wrap">
+  <h5 class="fw-bold mb-0">📷 Object Detection</h5>
+  <span class="badge {% if 'GPU' in device_label %}bg-success{% else %}bg-secondary{% endif %} ms-1">
+    {% if 'GPU' in device_label %}⚡ {{ device_label }}{% else %}🖥 {{ device_label }}{% endif %}
+  </span>
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    <label class="small text-muted mb-0">Model:</label>
+    <select class="form-select form-select-sm" id="model-select" style="max-width:300px;">
+      <option value="">Pretrained YOLO11n (COCO 80 classes)</option>
+      {% for m in trained_models %}
+      <option value="{{ m.path }}" {% if active_model == m.path %}selected{% endif %}>
+        {{ m.name }} ({{ m.size_mb }} MB) — custom
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <label class="small text-muted mb-0">Conf:</label>
+    <input type="range" id="conf-slider" min="0.05" max="0.95" step="0.05" value="0.20"
+           style="width:100px;"
+           oninput="document.getElementById('conf-val').textContent=parseFloat(this.value).toFixed(2)"/>
+    <span id="conf-val" class="badge bg-secondary">0.20</span>
+  </div>
+</div>
+
+<!-- Tab switcher -->
+<ul class="nav nav-tabs border-secondary mb-4" id="detect-tabs">
+  <li class="nav-item">
+    <button class="nav-link active fw-semibold" onclick="switchTab('webcam', this)">
+      📹 Webcam (Live)
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link fw-semibold" onclick="switchTab('image', this)">
+      🖼 Image Upload
+    </button>
+  </li>
+</ul>
+
+<!-- ── WEBCAM TAB ─────────────────────────────────────────────────────────── -->
+<div id="tab-webcam">
+  <div class="row g-4">
+    <div class="col-lg-8">
+      <div class="card border-0 bg-dark-subtle">
+        <div class="card-body p-3">
+          <video id="webcam-video" autoplay playsinline muted class="d-none"></video>
+          <canvas id="capture-canvas" class="d-none"></canvas>
+          <div class="webcam-container" style="min-height:360px;">
+            <img id="result-frame"
+                 src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                 class="w-100 rounded" alt="Detection result"
+                 style="display:block; min-height:360px; object-fit:contain; background:#111;"/>
+            <div id="webcam-placeholder" class="text-center py-5 text-muted">
+              <i class="bi bi-camera-video fs-1 d-block mb-2"></i>
+              Click <strong>Start Camera</strong> to begin live detection
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-success fw-bold" id="btn-start-cam" onclick="startWebcam()">
+              ▶ Start Camera
+            </button>
+            <button class="btn btn-danger fw-bold d-none" id="btn-stop-cam" onclick="stopWebcam()">
+              ⏹ Stop
+            </button>
+            <span class="badge bg-dark border border-secondary ms-auto align-self-center"
+                  id="fps-badge">— FPS</span>
+          </div>
+          <div id="webcam-error" class="alert alert-danger d-none mt-2 small py-2"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card border-0 bg-dark-subtle h-100">
+        <div class="card-body p-3">
+          <h6 class="fw-bold mb-3">🔍 Live Detections</h6>
+          <div id="webcam-det-list" class="small text-muted">No detections yet.</div>
+          <hr class="border-secondary"/>
+          <div class="row g-2 text-center">
+            <div class="col-6">
+              <div class="fw-bold text-primary fs-4" id="wc-count">0</div>
+              <div class="text-muted small">Objects</div>
+            </div>
+            <div class="col-6">
+              <div class="fw-bold text-success fs-4" id="wc-fps">0</div>
+              <div class="text-muted small">FPS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── IMAGE UPLOAD TAB ────────────────────────────────────────────────────── -->
+<div id="tab-image" class="d-none">
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div id="img-drop-zone" class="drop-zone mb-3" style="padding:2rem;">
+        <i class="bi bi-image fs-1 text-primary d-block mb-2"></i>
+        <div class="fw-semibold">Drop image here or click to browse</div>
+        <div class="text-muted small mt-1">JPG, PNG, WEBP supported</div>
+        <input type="file" id="img-input" accept="image/*" class="d-none"/>
+      </div>
+      <div id="img-result-wrap" class="d-none">
+        <img id="img-result" class="w-100 rounded border border-secondary" alt="Result"/>
+      </div>
+      <div id="img-spinner" class="text-center py-4 d-none">
+        <div class="spinner-border text-primary"></div>
+        <div class="mt-2 text-muted small">Running inference…</div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card border-0 bg-dark-subtle h-100">
+        <div class="card-body p-3">
+          <h6 class="fw-bold mb-3">🔍 Detections</h6>
+          <div id="img-det-list" class="small text-muted">
+            Upload an image to see detections.
+          </div>
+          <div id="img-model-badge" class="badge bg-secondary mt-3 d-none"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.getElementById('tab-webcam').classList.toggle('d-none', name !== 'webcam');
+  document.getElementById('tab-image').classList.toggle('d-none',  name !== 'image');
+  document.querySelectorAll('#detect-tabs .nav-link').forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  if (name !== 'webcam') stopWebcam();
+}
+
+// ── Webcam ─────────────────────────────────────────────────────────────────────
+var streaming = false, busy = false, frameTimer = null;
+var fpsCounter = 0, fpsTimer = null;
+var video       = document.getElementById('webcam-video');
+var canvas      = document.getElementById('capture-canvas');
+var ctx         = canvas.getContext('2d');
+var resultImg   = document.getElementById('result-frame');
+var placeholder = document.getElementById('webcam-placeholder');
+
+function startWebcam() {
+  navigator.mediaDevices.getUserMedia({video: {width: 640, height: 480}, audio: false})
+    .then(function(stream) {
+      video.srcObject = stream;
+      video.play();
+      streaming = true;
+      placeholder.style.display = 'none';
+      document.getElementById('btn-start-cam').classList.add('d-none');
+      document.getElementById('btn-stop-cam').classList.remove('d-none');
+      frameTimer = setInterval(captureFrame, 120);
+      fpsTimer   = setInterval(function() {
+        document.getElementById('wc-fps').textContent   = fpsCounter;
+        document.getElementById('fps-badge').textContent = fpsCounter + ' FPS';
+        fpsCounter = 0;
+      }, 1000);
+    })
+    .catch(function(err) { alert('Camera error: ' + err.message); });
+}
+
+function stopWebcam() {
+  if (!streaming) return;
+  streaming = false;
+  clearInterval(frameTimer);
+  clearInterval(fpsTimer);
+  if (video.srcObject) video.srcObject.getTracks().forEach(function(t) { t.stop(); });
+  placeholder.style.display = '';
+  document.getElementById('btn-start-cam').classList.remove('d-none');
+  document.getElementById('btn-stop-cam').classList.add('d-none');
+  document.getElementById('wc-fps').textContent = '0';
+}
+
+function captureFrame() {
+  if (!streaming || busy || video.readyState < 2) return;
+  busy = true;
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.drawImage(video, 0, 0);
+  var b64    = canvas.toDataURL('image/jpeg', 0.75);
+  var conf   = parseFloat(document.getElementById('conf-slider').value);
+  var mPath  = document.getElementById('model-select').value;
+
+  fetch('/detect/frame', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({frame: b64, conf: conf, model_path: mPath})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        var errEl = document.getElementById('webcam-error');
+        errEl.textContent = '⚠️ ' + d.error.split('\n')[0];
+        errEl.classList.remove('d-none');
+      } else {
+        document.getElementById('webcam-error').classList.add('d-none');
+        if (d.frame) { resultImg.src = d.frame; fpsCounter++; }
+        renderDetList('webcam-det-list', 'wc-count', d.detections || []);
+      }
+      busy = false;
+    })
+    .catch(function(e) {
+      document.getElementById('webcam-error').textContent = '⚠️ Request failed: ' + e;
+      document.getElementById('webcam-error').classList.remove('d-none');
+      busy = false;
+    });
+}
+
+// ── Image upload ──────────────────────────────────────────────────────────────
+var imgDrop  = document.getElementById('img-drop-zone');
+var imgInput = document.getElementById('img-input');
+
+imgDrop.addEventListener('click',     function() { imgInput.click(); });
+imgDrop.addEventListener('dragover',  function(e) { e.preventDefault(); imgDrop.classList.add('drag-over'); });
+imgDrop.addEventListener('dragleave', function()  { imgDrop.classList.remove('drag-over'); });
+imgDrop.addEventListener('drop', function(e) {
+  e.preventDefault(); imgDrop.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) runImageDetect(e.dataTransfer.files[0]);
+});
+imgInput.addEventListener('change', function() {
+  if (imgInput.files[0]) runImageDetect(imgInput.files[0]);
+});
+
+function runImageDetect(file) {
+  document.getElementById('img-spinner').classList.remove('d-none');
+  document.getElementById('img-result-wrap').classList.add('d-none');
+
+  var fd = new FormData();
+  fd.append('image',      file);
+  fd.append('conf',       document.getElementById('conf-slider').value);
+  fd.append('model_path', document.getElementById('model-select').value);
+
+  fetch('/detect/image', {method: 'POST', body: fd})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('img-spinner').classList.add('d-none');
+      if (d.error) { alert(d.error); return; }
+      document.getElementById('img-result').src = 'data:image/jpeg;base64,' + d.image;
+      document.getElementById('img-result-wrap').classList.remove('d-none');
+      renderDetList('img-det-list', null, d.detections || []);
+      var badge = document.getElementById('img-model-badge');
+      badge.textContent = '🤖 ' + d.model_source;
+      badge.classList.remove('d-none');
+    })
+    .catch(function(e) {
+      document.getElementById('img-spinner').classList.add('d-none');
+      alert('Detection failed: ' + e);
+    });
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+function renderDetList(listId, countId, dets) {
+  var el = document.getElementById(listId);
+  if (!dets.length) {
+    el.innerHTML = '<span class="text-muted">No detections above threshold.</span>';
+  } else {
+    el.innerHTML = dets.map(function(d) {
+      return '<div class="d-flex justify-content-between align-items-center mb-1">'
+        + '<span class="badge bg-primary">' + d.class + '</span>'
+        + '<span class="text-muted">' + (d.conf * 100).toFixed(1) + '%</span>'
+        + '</div>';
+    }).join('');
+  }
+  if (countId) document.getElementById(countId).textContent = dets.length;
+}
+</script>
+{% endblock %}

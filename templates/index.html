@@ -1,0 +1,85 @@
+<!-- Landing / workflow overview -->
+{% extends 'base.html' %}
+{% block title %}YOLO Playground — Home{% endblock %}
+{% block content %}
+
+<div class="hero-banner text-center py-5 mb-4 rounded-3">
+  <div class="display-3 mb-2">⚡</div>
+  <h1 class="display-5 fw-bold mb-2">YOLO Playground</h1>
+  <p class="lead text-muted mb-4">
+    Upload your Label Studio dataset → Fine-tune YOLO11 → Detect with your webcam
+  </p>
+  <a href="/upload/" class="btn btn-primary btn-lg px-5">Get Started →</a>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="card h-100 border-0 step-card step-card-1">
+      <div class="card-body text-center p-4">
+        <div class="step-icon mb-3">📦</div>
+        <div class="badge bg-primary mb-2">Step 1</div>
+        <h5 class="fw-bold">Upload Dataset</h5>
+        <p class="text-muted small">
+          Export from Label Studio as <strong>YOLO format</strong> (.zip, max 10 MB).
+          We auto-parse <code>classes.txt</code> and build <code>data.yaml</code>.
+          Uploading a new dataset replaces the previous one automatically.
+        </p>
+        <a href="/upload/" class="btn btn-outline-primary btn-sm mt-2">Upload →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100 border-0 step-card step-card-2">
+      <div class="card-body text-center p-4">
+        <div class="step-icon mb-3">🧠</div>
+        <div class="badge bg-warning text-dark mb-2">Step 2</div>
+        <h5 class="fw-bold">Fine-tune YOLO11</h5>
+        <p class="text-muted small">
+          Configure epochs, image size, batch, and model size (n/s/m/l/x).
+          Training runs on the server with <strong>live epoch-by-epoch metrics</strong>
+          streamed to your browser. Dataset is removed after training to free space.
+        </p>
+        <a href="/train/" class="btn btn-outline-warning btn-sm mt-2">Train →</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100 border-0 step-card step-card-3">
+      <div class="card-body text-center p-4">
+        <div class="step-icon mb-3">📷</div>
+        <div class="badge bg-success mb-2">Step 3</div>
+        <h5 class="fw-bold">Real-time Detection</h5>
+        <p class="text-muted small">
+          Use your <strong>webcam</strong> for live detection with your custom-trained
+          classes, or upload any image for single-shot inference.
+        </p>
+        <a href="/detect/" class="btn btn-outline-success btn-sm mt-2">Detect →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 bg-dark-subtle">
+  <div class="card-body py-3">
+    <div class="row g-3 text-center">
+      <div class="col-6 col-md-3">
+        <div class="fw-bold text-primary fs-5">YOLO11</div>
+        <div class="text-muted small">Base Architecture</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="fw-bold text-success fs-5">WebRTC</div>
+        <div class="text-muted small">Live Webcam Feed</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="fw-bold text-warning fs-5">Label Studio</div>
+        <div class="text-muted small">Annotation Source</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="fw-bold text-info fs-5">10 MB Max</div>
+        <div class="text-muted small">Upload Limit</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

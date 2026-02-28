@@ -1,0 +1,13 @@
+# Local multi-service orchestration
+version: "3.9"
+services:
+  app:
+    build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./data:/app/data
+      - ./runs:/app/runs
+    environment:
+      - SECRET_KEY=change-me-in-production
+    restart: unless-stopped

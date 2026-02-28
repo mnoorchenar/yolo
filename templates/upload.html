@@ -1,0 +1,182 @@
+<!-- Drag-and-drop upload (10 MB limit) -->
+{% extends 'base.html' %}
+{% block title %}Upload Dataset — YOLO Playground{% endblock %}
+{% block content %}
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <h4 class="fw-bold mb-0">📦 Upload Label Studio Export</h4>
+        <span class="badge bg-warning text-dark ms-1">Max 10 MB</span>
+    </div>
+    <p class="text-muted small mb-3">
+      In Label Studio: <strong>Export → YOLO</strong>. This produces a zip containing
+      <code>images/</code>, <code>labels/</code>, and <code>classes.txt</code>.
+    </p>
+
+    {% if yaml_exists %}
+    <div class="alert alert-warning py-2 small mb-3">
+      ⚠️ A dataset is already loaded (<strong>{{ classes | join(', ') }}</strong>).
+      Uploading a new one will <strong>replace it permanently</strong>.
+    </div>
+    {% endif %}
+
+    <!-- Drop zone -->
+    <div id="drop-zone" class="drop-zone mb-4">
+      <div id="dz-idle">
+        <i class="bi bi-cloud-arrow-up fs-1 text-primary d-block mb-2"></i>
+        <div class="fw-semibold">Drag &amp; drop your .zip here</div>
+        <div class="text-muted small mt-1">or click to browse &nbsp;·&nbsp;
+           <span class="text-warning fw-semibold">max 10 MB</span>
+        </div>
+      </div>
+      <div id="dz-uploading" class="d-none">
+        <div class="spinner-border text-primary mb-2" role="status"></div>
+        <div class="fw-semibold" id="dz-filename">Uploading…</div>
+        <div class="progress mt-3" style="height:6px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated"
+               id="upload-bar" style="width:100%"></div>
+        </div>
+      </div>
+      <input type="file" id="file-input" accept=".zip" class="d-none"/>
+    </div>
+
+    <!-- Success card -->
+    <div id="result-card" class="card border-success d-none">
+      <div class="card-body">
+        <h6 class="text-success fw-bold mb-1">✅ Dataset ready</h6>
+        <p class="text-muted small mb-3" id="replaced-msg"></p>
+        <div class="row g-3 text-center">
+          <div class="col-4">
+            <div class="metric-value text-primary" id="res-nc">—</div>
+            <div class="text-muted small">Classes</div>
+          </div>
+          <div class="col-4">
+            <div class="metric-value text-success" id="res-train">—</div>
+            <div class="text-muted small">Train images</div>
+          </div>
+          <div class="col-4">
+            <div class="metric-value text-warning" id="res-val">—</div>
+            <div class="text-muted small">Val images</div>
+          </div>
+        </div>
+        <hr class="border-secondary"/>
+        <div class="fw-semibold small mb-2 text-muted">Detected classes:</div>
+        <div id="class-pills" class="d-flex flex-wrap gap-2"></div>
+        <div class="mt-4">
+          <a href="/train/" class="btn btn-success">Proceed to Training →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error card -->
+    <div id="error-card" class="alert alert-danger d-none"></div>
+  </div>
+
+  <!-- Right: instructions -->
+  <div class="col-lg-5">
+    <div class="card border-0 bg-dark-subtle h-100">
+      <div class="card-body p-4">
+        <h6 class="fw-bold mb-3">📋 How to export from Label Studio</h6>
+        <ol class="small text-muted ps-3">
+          <li class="mb-2">Open your project in Label Studio</li>
+          <li class="mb-2">Click <strong>Export</strong> (top right)</li>
+          <li class="mb-2">Select <strong>YOLO</strong> format</li>
+          <li class="mb-2">Download the <code>.zip</code> file</li>
+          <li class="mb-2">Upload it here (<span class="text-warning">max 10 MB</span>)</li>
+        </ol>
+        <hr class="border-secondary"/>
+        <h6 class="fw-bold mb-2">📁 Expected zip structure</h6>
+        <pre class="small text-muted bg-black rounded p-3">export.zip/
+├── images/
+│   ├── train/
+│   └── val/       ← optional
+├── labels/
+│   ├── train/
+│   └── val/       ← optional
+└── classes.txt    ← required</pre>
+        <hr class="border-secondary"/>
+        <h6 class="fw-bold mb-2">💡 Tips to stay under 10 MB</h6>
+          <ul class="small text-muted ps-3 mb-0">
+            <li>Resize images to 640×640 before annotating</li>
+            <li>Use JPEG instead of PNG</li>
+            <li>Start with 100–200 images per class for a demo</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const MAX_MB    = 10;
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+function handleFile(file) {
+  if (!file.name.endsWith('.zip')) { showError('Please select a .zip file.'); return; }
+
+  // Client-side size gate (server enforces too)
+  if (file.size > MAX_MB * 1024 * 1024) {
+    const mb = (file.size / 1048576).toFixed(2);
+    showError('File is ' + mb + ' MB — maximum allowed is ' + MAX_MB + ' MB. '
+      + 'Try reducing image sizes or using fewer images.');
+    return;
+  }
+
+  document.getElementById('dz-idle').classList.add('d-none');
+  document.getElementById('dz-uploading').classList.remove('d-none');
+  document.getElementById('dz-filename').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+  document.getElementById('result-card').classList.add('d-none');
+  document.getElementById('error-card').classList.add('d-none');
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  fetch('/upload/submit', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('dz-idle').classList.remove('d-none');
+      document.getElementById('dz-uploading').classList.add('d-none');
+      if (data.error) { showError(data.error); return; }
+
+      document.getElementById('res-nc').textContent    = data.num_classes;
+      document.getElementById('res-train').textContent = data.train_count;
+      document.getElementById('res-val').textContent   = data.val_count || '—';
+
+      const msg = document.getElementById('replaced-msg');
+      msg.textContent = data.replaced
+        ? '♻️ Previous dataset was replaced.'
+        : '🆕 Dataset loaded for the first time.';
+
+      const pills = document.getElementById('class-pills');
+      pills.innerHTML = data.classes
+        .map(c => '<span class="badge bg-primary">' + c + '</span>')
+        .join('');
+
+      document.getElementById('result-card').classList.remove('d-none');
+    })
+    .catch(err => {
+      document.getElementById('dz-idle').classList.remove('d-none');
+      document.getElementById('dz-uploading').classList.add('d-none');
+      showError('Upload failed: ' + err);
+    });
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-card');
+  el.textContent = '❌ ' + msg;
+  el.classList.remove('d-none');
+}
+</script>
+{% endblock %}

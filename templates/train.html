@@ -1,0 +1,394 @@
+{% extends 'base.html' %}
+{% block title %}Train — YOLO Playground{% endblock %}
+{% block content %}
+
+{% if not yaml_exists %}
+<div class="alert alert-warning">
+  ⚠️ No dataset found. <a href="/upload/" class="alert-link">Upload a dataset first →</a>
+</div>
+{% endif %}
+
+<div class="row g-4">
+
+  <!-- LEFT: Config -->
+  <div class="col-lg-4">
+    <div class="card border-0 bg-dark-subtle">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between mb-4">
+          <h5 class="fw-bold mb-0">⚙️ Training Config</h5>
+          <span class="badge {% if 'GPU' in device_label %}bg-success{% else %}bg-secondary{% endif %}">
+            {% if 'GPU' in device_label %}⚡ {{ device_label }}{% else %}🖥 {{ device_label }}{% endif %}
+          </span>
+        </div>
+
+        <label class="form-label small fw-semibold">Model Size</label>
+        <div class="btn-group w-100 mb-1" role="group">
+          {% for s, label in [('n','Nano'), ('s','Small'), ('m','Medium'), ('l','Large'), ('x','XLarge')] %}
+          <input type="radio" class="btn-check" name="model_size"
+                 id="sz-{{s}}" value="{{s}}" {% if s == 'n' %}checked{% endif %}/>
+          <label class="btn btn-outline-primary btn-sm" for="sz-{{s}}">{{label}}</label>
+          {% endfor %}
+        </div>
+        <div class="text-muted small mb-3" id="size-hint">
+          Nano: fastest inference, good for quick demos on CPU.
+        </div>
+
+        <label class="form-label small fw-semibold">
+          Epochs: <span id="epoch-label">30</span>
+        </label>
+        <input type="range" class="form-range mb-3" id="epochs"
+               min="5" max="300" step="5" value="30"
+               oninput="document.getElementById('epoch-label').textContent=this.value"/>
+
+        <label class="form-label small fw-semibold">Image Size</label>
+        <select class="form-select form-select-sm mb-3" id="imgsz">
+          <option value="320">320 (faster)</option>
+          <option value="640" selected>640 (default)</option>
+          <option value="1280">1280 (more accurate)</option>
+        </select>
+
+        <label class="form-label small fw-semibold">Batch Size</label>
+        <select class="form-select form-select-sm mb-4" id="batch">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+          <option value="32">32</option>
+        </select>
+
+        {% if classes %}
+        <div class="mb-4">
+          <div class="text-muted small fw-semibold mb-1">Classes ({{ classes|length }})</div>
+          <div class="d-flex flex-wrap gap-1">
+            {% for c in classes %}
+            <span class="badge bg-primary">{{ c }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="alert alert-info py-2 small mb-3">
+          💡 Dataset is removed after training — only weights are kept.
+        </div>
+
+        <button class="btn btn-warning w-100 fw-bold" id="btn-start"
+                onclick="startTraining()" {% if not yaml_exists %}disabled{% endif %}>
+          🚀 Start Training
+        </button>
+        <button class="btn btn-outline-danger w-100 mt-2 d-none" id="btn-stop"
+                onclick="stopTraining()">
+          ⏹ Stop
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Progress -->
+  <div class="col-lg-8">
+
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <h5 class="fw-bold mb-0">📈 Live Progress</h5>
+      <span class="badge bg-secondary fs-6" id="status-badge">IDLE</span>
+      <span class="badge bg-dark border border-secondary ms-auto" id="device-badge">
+        {{ device_label }}
+      </span>
+    </div>
+
+    <!-- 4 key metric cards -->
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-3">
+        <div class="metric-card">
+          <div class="metric-value text-primary" id="m-epoch">0 / 0</div>
+          <div class="text-muted small mt-1">Epoch</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="metric-card">
+          <div class="metric-value text-success" id="m-map50">—</div>
+          <div class="text-muted small mt-1">mAP@50</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="metric-card">
+          <div class="metric-value text-warning" id="m-prec">—</div>
+          <div class="text-muted small mt-1">Precision</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="metric-card">
+          <div class="metric-value text-danger" id="m-box">—</div>
+          <div class="text-muted small mt-1">Box Loss</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live metrics chart -->
+    <div class="card border-secondary bg-dark-subtle mb-3" id="chart-card" style="display:none;">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <span class="small fw-semibold text-muted">📉 Live Metric Trends</span>
+          <div class="d-flex gap-3 small">
+            <span style="color:#4ade80;">■ mAP@50</span>
+            <span style="color:#60a5fa;">■ Precision</span>
+            <span style="color:#facc15;">■ Recall</span>
+            <span style="color:#f87171;">■ Box Loss</span>
+          </div>
+        </div>
+        <canvas id="metrics-chart" height="90"></canvas>
+      </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="progress mb-3" style="height:18px; border-radius:9px;">
+      <div class="progress-bar progress-bar-striped bg-warning" id="progress-bar"
+           role="progressbar" style="width:0%; transition:width 1s ease;">0%</div>
+    </div>
+
+    <!-- Log terminal -->
+    <pre id="log-output" class="log-terminal">Waiting to start…</pre>
+
+    <!-- Done banner -->
+    <div id="done-banner" class="alert alert-success d-none mt-3">
+      ✅ Training complete! Weights saved.
+      <a href="/detect/" class="alert-link ms-2">Go to Detect →</a>
+    </div>
+    <div id="error-banner" class="alert alert-danger d-none mt-3"></div>
+
+    <!-- ── Result Plots (shown after training) ──────────────────────────── -->
+    <div id="plots-section" class="d-none mt-4">
+      <h6 class="fw-bold mb-3">📊 Training Result Plots</h6>
+
+      <!-- Plot tabs -->
+      <ul class="nav nav-tabs border-secondary mb-3 small" id="plot-tabs"></ul>
+      <div id="plot-display">
+        <img id="plot-img" class="w-100 rounded border border-secondary" alt="Plot"/>
+      </div>
+    </div>
+
+  </div><!-- /col-lg-8 -->
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+var evtSource  = null;
+var allPlots   = [];
+var metricsChart = null;
+
+var sizeHints = {
+  n: 'Nano: fastest, least accurate. Best for demos on CPU.',
+  s: 'Small: great speed/accuracy balance.',
+  m: 'Medium: solid accuracy, moderate speed.',
+  l: 'Large: high accuracy, slower.',
+  x: 'XLarge: maximum accuracy, slowest.'
+};
+
+document.querySelectorAll('input[name=model_size]').forEach(function(r) {
+  r.addEventListener('change', function() {
+    document.getElementById('size-hint').textContent = sizeHints[r.value] || '';
+  });
+});
+
+// ── Chart initialisation ──────────────────────────────────────────────────────
+function initChart() {
+  if (metricsChart) { metricsChart.destroy(); metricsChart = null; }
+  var ctx = document.getElementById('metrics-chart').getContext('2d');
+  metricsChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'mAP@50',    data: [], borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.08)', tension: 0.3, pointRadius: 2, borderWidth: 2 },
+        { label: 'Precision', data: [], borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.3, pointRadius: 2, borderWidth: 2 },
+        { label: 'Recall',    data: [], borderColor: '#facc15', backgroundColor: 'rgba(250,204,21,0.08)',  tension: 0.3, pointRadius: 2, borderWidth: 2 },
+        { label: 'Box Loss',  data: [], borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.08)',tension: 0.3, pointRadius: 2, borderWidth: 2, yAxisID: 'yLoss' },
+      ]
+    },
+    options: {
+      animation: { duration: 400 },
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9ca3af', maxTicksLimit: 10 }, grid: { color: '#374151' } },
+        y: {
+          min: 0, max: 1,
+          ticks: { color: '#9ca3af', stepSize: 0.2 },
+          grid: { color: '#374151' },
+          title: { display: true, text: 'Score (0-1)', color: '#6b7280', font: { size: 11 } }
+        },
+        yLoss: {
+          position: 'right',
+          min: 0,
+          ticks: { color: '#f87171' },
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: 'Box Loss', color: '#f87171', font: { size: 11 } }
+        }
+      }
+    }
+  });
+}
+
+function updateChart(history) {
+  if (!metricsChart || !history || !history.length) return;
+  var ds = metricsChart.data.datasets;
+  metricsChart.data.labels = history.map(function(h) { return h.epoch; });
+  ds[0].data = history.map(function(h) { return parseFloat(h.mAP50)    || null; });
+  ds[1].data = history.map(function(h) { return parseFloat(h.precision) || null; });
+  ds[2].data = history.map(function(h) { return parseFloat(h.recall)   || null; });
+  ds[3].data = history.map(function(h) { return parseFloat(h.box_loss) || null; });
+  metricsChart.update('none');
+  // auto-scale loss Y axis
+  var lossMax = Math.max.apply(null, ds[3].data.filter(Boolean));
+  if (lossMax > 0) metricsChart.options.scales.yLoss.max = Math.ceil(lossMax * 1.2 * 10) / 10;
+  metricsChart.update();
+}
+
+// ── Start / Stop ──────────────────────────────────────────────────────────────
+function startTraining() {
+  var cfg = {
+    epochs:     parseInt(document.getElementById('epochs').value),
+    imgsz:      parseInt(document.getElementById('imgsz').value),
+    batch:      parseInt(document.getElementById('batch').value),
+    model_size: document.querySelector('input[name=model_size]:checked').value
+  };
+  document.getElementById('done-banner').classList.add('d-none');
+  document.getElementById('error-banner').classList.add('d-none');
+  document.getElementById('plots-section').classList.add('d-none');
+  document.getElementById('chart-card').style.display = 'none';
+  initChart();
+
+  fetch('/train/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(cfg)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    if (d.device) document.getElementById('device-badge').textContent = d.device;
+    setUIState('running');
+    listenSSE();
+  });
+}
+
+function stopTraining() {
+  if (evtSource) { evtSource.close(); evtSource = null; }
+  fetch('/train/stop', {method: 'POST'}).then(function() { setUIState('idle'); });
+}
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+function listenSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/train/progress');
+  evtSource.onmessage = function(e) {
+    var s = JSON.parse(e.data);
+    updateUI(s);
+    if (s.status === 'done' || s.status === 'error') {
+      evtSource.close();
+      evtSource = null;
+      setUIState(s.status);
+      if (s.status === 'done' && s.plots && s.plots.length) {
+        showPlots(s.plots);
+      }
+    }
+  };
+  evtSource.onerror = function() {
+    setTimeout(function() {
+      fetch('/train/status').then(function(r) { return r.json(); }).then(function(s) {
+        updateUI(s);
+        setUIState(s.status);
+        if (s.status === 'done' && s.plots && s.plots.length) showPlots(s.plots);
+      });
+    }, 2000);
+  };
+}
+
+// ── UI update ─────────────────────────────────────────────────────────────────
+function updateUI(s) {
+  var pct = s.total_epochs > 0 ? Math.round(s.epoch / s.total_epochs * 100) : 0;
+  var bar = document.getElementById('progress-bar');
+  bar.style.width  = pct + '%';
+  bar.textContent  = pct + '%';
+
+  document.getElementById('m-epoch').textContent = s.epoch + ' / ' + s.total_epochs;
+  document.getElementById('m-map50').textContent = s.mAP50;
+  document.getElementById('m-prec').textContent  = s.precision;
+  document.getElementById('m-box').textContent   = s.box_loss;
+
+  var colors = {idle:'secondary', running:'warning', done:'success', error:'danger'};
+  var badge  = document.getElementById('status-badge');
+  badge.className   = 'badge bg-' + (colors[s.status] || 'secondary') + ' fs-6';
+  badge.textContent = s.status.toUpperCase();
+
+  if (s.log_tail && s.log_tail.length) {
+    var log = document.getElementById('log-output');
+    log.textContent = s.log_tail.join('\n');
+    log.scrollTop   = log.scrollHeight;
+  }
+
+  // Update live chart
+  if (s.history && s.history.length > 1) {
+    document.getElementById('chart-card').style.display = '';
+    updateChart(s.history);
+  }
+}
+
+function setUIState(st) {
+  document.getElementById('btn-start').classList.toggle('d-none', st === 'running');
+  document.getElementById('btn-stop').classList.toggle('d-none',  st !== 'running');
+  if (st === 'done') {
+    document.getElementById('done-banner').classList.remove('d-none');
+  }
+  if (st === 'error') {
+    fetch('/train/status').then(function(r) { return r.json(); }).then(function(d) {
+      var el = document.getElementById('error-banner');
+      el.textContent = '❌ ' + (d.error || 'Unknown error');
+      el.classList.remove('d-none');
+    });
+  }
+}
+
+// ── Plots ─────────────────────────────────────────────────────────────────────
+function showPlots(plots) {
+  if (!plots || !plots.length) return;
+  allPlots = plots;
+
+  var tabs = document.getElementById('plot-tabs');
+  tabs.innerHTML = '';
+  plots.forEach(function(url, i) {
+    var name = url.split('/').pop().replace('.png', '').replace(/_/g, ' ');
+    var li   = document.createElement('li');
+    li.className = 'nav-item';
+    li.innerHTML = '<button class="nav-link' + (i === 0 ? ' active' : '') +
+      ' fw-semibold py-1 px-3" onclick="switchPlot(\'' + url + '\', this)">' +
+      name + '</button>';
+    tabs.appendChild(li);
+  });
+
+  document.getElementById('plot-img').src = plots[0];
+  document.getElementById('plots-section').classList.remove('d-none');
+}
+
+function switchPlot(url, btn) {
+  document.getElementById('plot-img').src = url;
+  document.querySelectorAll('#plot-tabs .nav-link').forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+}
+
+// ── Restore state on page load ────────────────────────────────────────────────
+initChart();
+fetch('/train/status').then(function(r) { return r.json(); }).then(function(s) {
+  updateUI(s);
+  if (s.status === 'running') { setUIState('running'); listenSSE(); }
+  if (s.status === 'done') {
+    setUIState('done');
+    if (s.plots && s.plots.length) showPlots(s.plots);
+  }
+  if (s.history && s.history.length > 1) {
+    document.getElementById('chart-card').style.display = '';
+    updateChart(s.history);
+  }
+});
+</script>
+{% endblock %}

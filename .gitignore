@@ -1,0 +1,14 @@
+﻿__pycache__/
+*.pyc
+.myenv
+.env
+.DS_Store
+*.log
+.vscode/
+*.tmp
+
+# YOLO model weights (auto-downloaded by Ultralytics at runtime)
+*.pt
+
+# Training / inference output (generated at runtime, not needed in repo)
+runs/
